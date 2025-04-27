@@ -92,11 +92,14 @@ List all non-countries.
 
 run_sql_and_return_html(cnx,"""
 select
-  *
+  `Short Name`
 from
   world_bank_data.wdi_country
 where
-  `Currency Unit` IS NULL
+  Region is null
+     or Region = 'Aggregates'
+     or `Short Name` = 'World'
+order by `Short Name`
 """)
 ```
 
@@ -382,20 +385,19 @@ order by
 ## (skills: select, aggregate, group by, nested query)
 
 run_sql_and_return_html(cnx,"""
-SELECT 
+select
   Region,
-  SUM(CASE WHEN `Income Group` = 'High income' THEN 1 ELSE 0 END) AS `High income`,
-  SUM(CASE WHEN `Income Group` = 'Upper middle income' THEN 1 ELSE 0 END) AS `Upper middle income`,
-  SUM(CASE WHEN `Income Group` = 'Lower middle income' THEN 1 ELSE 0 END) AS `Lower middle income`,
-  SUM(CASE WHEN `Income Group` = 'Low income' THEN 1 ELSE 0 END) AS `Low income`,
-  SUM(CASE WHEN `Income Group` IS NULL THEN 1 ELSE 0 END) AS `Other`,
-  COUNT(*) AS `Row Total`
-FROM 
+  count(case when `Income Group` = 'High income' then 1 end) * 1.0 as "High income",
+  count(case when `Income Group` = 'Upper middle income' then 1 end) * 1.0 as "Upper middle income",
+  count(case when `Income Group` = 'Lower middle income' then 1 end) * 1.0 as "Lower middle income",
+  count(case when `Income Group` = 'Low income' then 1 end) * 1.0 as "Low income",
+  count(*) * 1.0 as "Total"
+from
   wdi_country
-GROUP BY 
+group by
   Region
-ORDER BY 
-  Region;
+order by
+  Region
 """)
 
 ```
@@ -489,46 +491,33 @@ order by
 ## (skills: select, where, subqueries, joins)
 
 run_sql_and_return_html(cnx,"""
-WITH all_combinations AS (
-  SELECT 
-    r.Region, 
-    i.`Income Group`
-  FROM 
-    (SELECT DISTINCT Region FROM wdi_country) r
-  CROSS JOIN 
-    (SELECT DISTINCT `Income Group` FROM wdi_country) i
+with regions as (
+  select distinct Region from wdi_country
 ),
-existing_combinations AS (
-  SELECT 
-    Region, 
-    `Income Group`
-  FROM 
-    wdi_country
-  GROUP BY 
-    Region, 
-    `Income Group`
+income_groups as (
+  select distinct `Income Group` from wdi_country
 ),
-missing_combinations AS (
-  SELECT 
-    a.Region, 
-    a.`Income Group`
-  FROM 
-    all_combinations a
-  LEFT JOIN 
-    existing_combinations e
-  ON 
-    a.Region = e.Region AND a.`Income Group` = e.`Income Group`
-  WHERE 
-    e.Region IS NULL
+all_combinations as (
+  select r.Region, i.`Income Group`
+  from regions r
+  cross join income_groups i
+),
+existing_combinations as (
+  select distinct Region, `Income Group`
+  from wdi_country
 )
-SELECT 
-  Region, 
-  `Income Group`
-FROM 
-  missing_combinations
-ORDER BY 
-  Region, 
-  `Income Group`;
+select
+  a.Region,
+  a.`Income Group`,
+  'Missing' as status
+from
+  all_combinations a
+left join existing_combinations e
+  on a.Region = e.Region and a.`Income Group` = e.`Income Group`
+where
+  e.Region is null
+order by
+  a.Region, a.`Income Group`
 """)
 
 ```
@@ -641,17 +630,22 @@ ORDER BY
 ## (This is much simpler than task 20!)
 
 run_sql_and_return_html(cnx,"""
-SELECT 
+with total as (
+  select count(*) as total_count from wdi_country
+)
+select
   `Income Group`,
-  COUNT(*) AS country_count,
-  SUM(COUNT(*)) OVER () AS total_countries,
-  ROUND((COUNT(*) * 100.0 / SUM(COUNT(*)) OVER ()), 2) AS percent_of_total
-FROM 
-  wdi_country
-GROUP BY 
-  `Income Group`
-ORDER BY 
-  `Income Group`;
+  count(*) as num_countries,
+  round(count(*) * 100.0 / total.total_count, 1) as pct_of_total,
+  total.total_count as total_countries
+from
+  wdi_country, total
+where
+  `Income Group` is not null
+group by
+  `Income Group`, total.total_count
+order by
+  num_countries desc
 """)
 
 ```
